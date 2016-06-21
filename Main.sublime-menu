@@ -1,0 +1,23 @@
+[
+    {
+        "caption": "Project",
+        "mnemonic": "p",
+        "id": "project",
+        "children":
+        [
+            {
+                "caption": "-",
+                "id": "sublime_clang",
+            },
+            {
+                "command": "sublimeclang_openprj",
+                "caption": "打开工程文件..."
+            },
+            {
+                "command": "sublimeclang_fellowdef",
+                "caption": "在右侧视图中跟随定义",
+                "checkbox": true
+            },
+        ]
+    }
+]

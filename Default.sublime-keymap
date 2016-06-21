@@ -1,0 +1,25 @@
+[
+  {
+    "command": "clang_complete",
+    "args": {"characters": "."},
+    "keys": ["."],
+  },
+  {
+    "command": "clang_complete",
+    "args": {"characters": ">"},
+    "keys": [">"],
+  },
+  {
+    "command": "clang_complete",
+    "args": {"characters": "\""},
+    "keys": ["\""]
+  },
+  {
+    "command": "jump_back",
+    "keys": ["ctrl+alt+o"]
+  },
+  {
+    "command": "jump_forward",
+    "keys": ["ctrl+alt+p"]
+  }
+]
