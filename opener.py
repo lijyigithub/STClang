@@ -107,10 +107,13 @@ class CubesuiteOpener():
             '-Dboolean=char',
             '-Dcallf=',
             '-Dcallt=',
-            '-D__callf',
-            '-D__callt',
+            '-D__callf=',
+            '-D__callt=',
             '-Ddivuw(a, b)=((int)0)',
-            '-Dwtobcd(x)=((int)0)'
+            '-Dwtobcd(x)=((int)0)',
+            '-Dsreg=',
+            '-Dleaf=',
+            '-D__leaf='
         ]
         self.sys_inc = list()
 
