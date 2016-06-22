@@ -36,7 +36,7 @@ def location_to_pos(location):
 class find_sym_panel():
     def __init__(self, window):
         self.panel = window.get_output_panel('find_sym_panel')
-        self.panel.set_syntax_file('Packages/SublimeClang/find_symbols.tmLanguage')
+        self.panel.set_syntax_file('Packages/STClang/find_symbols.tmLanguage')
         self.panel.set_name('find_sym_panel')
         self.window = window
         window.run_command('show_panel', {'panel': 'output.find_sym_panel'})
@@ -53,7 +53,7 @@ class find_sym_panel():
 class error_panel():
     def __init__(self, window):
         self.panel = window.get_output_panel('error_panel')
-        self.panel.set_syntax_file('Packages/SublimeClang/errors.tmLanguage')
+        self.panel.set_syntax_file('Packages/STClang/errors.tmLanguage')
         self.panel.set_name('error_panel')
         self.window = window
         window.run_command('show_panel', {'panel': 'output.error_panel'})
