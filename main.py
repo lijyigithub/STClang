@@ -72,7 +72,7 @@ class error_panel():
 
 
 
-class SublimeclangOpenprj(sublime_plugin.TextCommand):
+class SclangOpenprj(sublime_plugin.TextCommand):
     def run(self, edit):
         global func_on_load
         def on_load(self, view):
@@ -83,7 +83,7 @@ class SublimeclangOpenprj(sublime_plugin.TextCommand):
         func_on_load = on_load
         self.view.window().run_command('prompt_open_file')
 
-class SublimeclangFellowdef(sublime_plugin.TextCommand):
+class SclangFellowdef(sublime_plugin.TextCommand):
     def __init__(self, whatever):
         self.cked = False
         sublime_plugin.TextCommand.__init__(self, whatever)
@@ -101,20 +101,20 @@ class SublimeclangFellowdef(sublime_plugin.TextCommand):
             proj.get_def_body_of(cur_file, line, column)
             return
             l, c = location_to_pos(cur.location)
-            for v in sublime.active_window().views_in_group(0):
-                if os.path.samefile(v.file_name(), def_file):
-                    def clone_and_view(view):
-                        sublime.active_window().set_view_index(view, 1, 0)
-                        view.show_at_center(view.text_point(l, c))
-                    on_clone_callback = clone_and_view
-                    v.run_command('clone_file')
-                    return
+            # for v in sublime.active_window().views_in_group(0):
+            #     if os.path.samefile(v.file_name(), def_file):
+            #         def clone_and_view(view):
+            #             sublime.active_window().set_view_index(view, 1, 0)
+            #             view.show_at_center(view.text_point(l, c))
+            #         on_clone_callback = clone_and_view
+            #         v.run_command('clone_file')
+            #         return
 
             v = sublime.active_window().open_file('%s:%d:%d' % (def_file, l, c), sublime.ENCODED_POSITION|sublime.TRANSIENT)
-            # v = sublime.active_window().views_in_group(1)[0]
-            # v.run_command('append', {'characters': open(cur_file).read(), 'force': True, 'scroll_to_end': False})
-            # v.set_read_only(True)
-            # v.show_at_center(v.text_point(l, c))
+            v = sublime.active_window().views_in_group(1)[0]
+            v.run_command('append', {'characters': open(cur_file).read(), 'force': True, 'scroll_to_end': False})
+            v.set_read_only(True)
+            v.show_at_center(v.text_point(l, c))
             sublime.active_window().set_view_index(v, 1, 0)
             
         self.cked = not self.cked
@@ -150,7 +150,7 @@ class SublimeclangFellowdef(sublime_plugin.TextCommand):
     def is_checked(self):
         return self.cked
 
-class SublimeclangOpen(sublime_plugin.TextCommand):
+class SclangOpen(sublime_plugin.TextCommand):
     def run(self, edit, opener):
         global proj
         cur_win = self.view.window()
@@ -174,7 +174,7 @@ class SublimeclangOpen(sublime_plugin.TextCommand):
         proj.compile(progress_callback=show_progess)
 
 
-class SublimeclangGoto(sublime_plugin.TextCommand):
+class SclangGoto(sublime_plugin.TextCommand):
     def run(self, edit):
         cur_file = get_view_file(self.view)
         line, column = get_view_cur(self.view)
@@ -203,7 +203,7 @@ class SublimeclangGoto(sublime_plugin.TextCommand):
             return False
 
 
-class SublimeclangView(sublime_plugin.TextCommand):
+class SclangView(sublime_plugin.TextCommand):
     def run(self, edit):
         global outer
         cur_file = get_view_file(self.view)
@@ -243,7 +243,7 @@ class SublimeclangView(sublime_plugin.TextCommand):
             return False
 
 
-class SublimeclangSwitchfile(sublime_plugin.TextCommand):
+class SclangSwitchfile(sublime_plugin.TextCommand):
     def run(self, edit):
         cur_file = get_view_file(self.view)
         line, column = get_view_cur(self.view)
@@ -321,13 +321,11 @@ class ClangComplete(sublime_plugin.TextCommand):
     def delayed_complete(self):
         self.view.run_command("auto_complete")
 
-class SublimeClang3EventListener(sublime_plugin.EventListener):
-    def __init__(self):
-        pass
-
+class STClangListener(sublime_plugin.EventListener):
     def on_load(self, view):
         global func_on_load
         if func_on_load:
+            print(func_on_load)
             func_on_load(self, view)
         func_on_load = None
 

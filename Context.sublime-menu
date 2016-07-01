@@ -1,8 +1,8 @@
 [
-    { "caption": "-", "id": "SublimeClang" },
-    { "command": "sublimeclang_goto", "caption": "转到定义\tCtrl+Alt+B" },
-    { "command": "sublimeclang_view", "caption": "查找所有引用\tCtrl+Alt+N" },
-    { "command": "sublimeclang_switchfile", "caption": "切换头文件\tCtrl+Alt+N" },
+    { "caption": "-", "id": "SClang" },
+    { "command": "sclang_goto", "caption": "转到定义\tCtrl+Alt+B" },
+    { "command": "sclang_view", "caption": "查找所有引用\tCtrl+Alt+N" },
+    { "command": "sclang_switchfile", "caption": "切换头文件\tCtrl+Alt+N" },
     { "command": "jump_back", "caption": "返回\tCtrl+Alt+O"},
     { "command": "jump_forward", "caption": "前进\tCtrl+Alt+P"}
 ]

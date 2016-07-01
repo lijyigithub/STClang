@@ -69,8 +69,8 @@ class Compiler:
     def collect_symbols(self):
         symbol_table = dict()
         symbol_def_table = dict()
-        #for cursor in self.clang.cursor.get_children():
-        for cursor in self.clang.cursor.walk_preorder():
+        for cursor in self.clang.cursor.get_children():
+        # for cursor in self.clang.cursor.walk_preorder():
             if cursor.spelling == '':
                 continue
             if cursor.is_definition():
@@ -84,7 +84,6 @@ class Compiler:
             symbol_table[usr].append(cursor)
         self.symbol_def_table = symbol_def_table
         self.symbol_table = symbol_table
-
 
     def find_symbols(self, usr):
         if usr in self.symbol_table:

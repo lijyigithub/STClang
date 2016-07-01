@@ -47,7 +47,7 @@ class SoftuneOpener():
         arg_dict['usr_inc'] = self.usr_inc
         arg_dict['c_files'] = self.c_files
         arg_dict['args'] = self.args
-        view.window().run_command('sublimeclang_open', {'opener': arg_dict})
+        view.window().run_command('sclang_open', {'opener': arg_dict})
 
 class IAROpener():
     def __init__(self):
@@ -94,7 +94,7 @@ class IAROpener():
         arg_dict['usr_inc'] = self.usr_inc
         arg_dict['c_files'] = self.c_files
         arg_dict['args'] = self.args
-        view.window().run_command('sublimeclang_open', {'opener': arg_dict})
+        view.window().run_command('sclang_open', {'opener': arg_dict})
 
 class CubesuiteOpener():
     def __init__(self):
@@ -132,7 +132,6 @@ class CubesuiteOpener():
         fp = os.path.normpath(fp)
         fp = os.path.normcase(fp)
         fp = fp.replace('\\', os.sep)
-        print(repr(fp))
         self.usr_inc.append(fp)
         self.c_files = list()
         for f in tree.iterfind('./Class/Instance[Type="File"]/RelativePath'):
@@ -149,7 +148,7 @@ class CubesuiteOpener():
         arg_dict['usr_inc'] = self.usr_inc
         arg_dict['c_files'] = self.c_files
         arg_dict['args'] = self.args
-        view.window().run_command('sublimeclang_open', {'opener': arg_dict})
+        view.window().run_command('sclang_open', {'opener': arg_dict})
 
 
 class Opener():
