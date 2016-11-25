@@ -1,10 +1,11 @@
 # -*- coding:utf-8 -*-
 import os
-from .clang import *
-from .clang.cindex import *
+from clang import *
+from clang.cindex import *
 import threading
 import pickle
-     
+import sqlite3
+import pprint
 
 def source_range_hash(self):
     return self.__repr__().__hash__()
@@ -42,6 +43,9 @@ class Compiler:
         self.symbol_table = dict()
         self.symbol_def_table = dict()
         self.errors = None
+        self.database = sqlite3.connect(':memory:')
+        self.database_cur = self.database.cursor()
+        self.database_cur.execute("CREATE TABLE Symbol (usr varchar(128) primary key, defpos int)")
 
     def get_include_files(self):
         for file_inclusions in self.clang.get_includes():
@@ -69,13 +73,14 @@ class Compiler:
     def collect_symbols(self):
         symbol_table = dict()
         symbol_def_table = dict()
-        for cursor in self.clang.cursor.get_children():
-        # for cursor in self.clang.cursor.walk_preorder():
+        # for cursor in self.clang.cursor.get_children():
+        for cursor in self.clang.cursor.walk_preorder():
             if cursor.spelling == '':
                 continue
             if cursor.is_definition():
                 usr = cursor.get_usr()
                 symbol_def_table[usr] = cursor
+                self.database_cur.execute("INSERT OR IGNORE INTO Symbol values ('%s', %d)" % (usr, 1))
             if (cursor.get_definition() is None) and (cursor.referenced is None):
                 continue
             usr = (cursor.get_definition() or cursor.referenced).get_usr()
@@ -84,6 +89,8 @@ class Compiler:
             symbol_table[usr].append(cursor)
         self.symbol_def_table = symbol_def_table
         self.symbol_table = symbol_table
+        self.database_cur.execute("SELECT * FROM Symbol")
+        pprint.pprint(self.database_cur.fetchall())
 
     def find_symbols(self, usr):
         if usr in self.symbol_table:
@@ -256,8 +263,9 @@ class Projector:
 
             if progress_callback:
                 progress_callback('All Done.')
-        self.background_worker = threading.Thread(target=worker, args=(self, unsaved_files, progress_callback))
-        self.background_worker.start()
+        # self.background_worker = threading.Thread(target=worker, args=(self, unsaved_files, progress_callback))
+        # self.background_worker.start()
+        worker(self, unsaved_files, progress_callback)
 
     def re_compile(self, target_file, unsaved_files=None):
         if self.background_worker and self.background_worker.isAlive():
@@ -353,10 +361,10 @@ class Projector:
 
 if __name__ == '__main__':
     proj = Projector()
-    proj.set_work_path(r'D:\clang\Fujitsu_718')
-    proj.add_usr_include_path(r'D:\clang\Fujitsu_718')
-    proj.add_usr_include_path(r'D:\clang\Fujitsu_718\Fujitsu718')
-    proj.add_file(r'D:\clang\Fujitsu_718\main.c')
+    proj.set_work_path(r'D:\WorkSpace\Fujitsu_718')
+    proj.add_usr_include_path(r'D:\WorkSpace\Fujitsu_718')
+    proj.add_usr_include_path(r'D:\WorkSpace\Fujitsu_718\Fujitsu718')
+    proj.add_file(r'D:\WorkSpace\Fujitsu_718\main.c')
     # proj.add_file(r'D:\workspace\Fujitsu_718\math.c')
     args = list()
     args.append( "-D__io=")
@@ -373,6 +381,6 @@ if __name__ == '__main__':
     args.append( "-std=c99")
     proj.set_arguments(args)
     proj.compile()
-    proj.re_compile(r'D:\clang\Fujitsu_718\main.c')
+    # proj.re_compile(r'D:\clang\Fujitsu_718\main.c')
 
 
