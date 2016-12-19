@@ -6,6 +6,8 @@ import threading
 import pickle
 import sqlite3
 import pprint
+import platform
+
 
 def source_range_hash(self):
     return self.__repr__().__hash__()
@@ -15,7 +17,6 @@ SourceRange.__hash__ = source_range_hash
 local_config = {
 }
 
-import platform
 if platform.system() == 'Darwin':
     local_config['lib_path'] = '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/'
 elif platform.system() == 'Windows':
@@ -31,10 +32,12 @@ EditingTranslationUnitOptions = (
         cindex.TranslationUnit.PARSE_INCLUDE_BRIEF_COMMENTS_IN_CODE_COMPLETION|
         0x200)
 
+
 def path_normalize(file_path):
     file_path = os.path.normpath(file_path)
     file_path = os.path.normcase(file_path)
     return file_path
+
 
 class Compiler:
     def __init__(self, filename):
@@ -59,6 +62,7 @@ class Compiler:
         for f in self.get_include_files():
             inc_list.append((f[0], os.stat(f[0]).st_mtime))
         self.fileinfo['HeaderModifyTime'] = inc_list
+        self.get_errors()
 
     def reparse(self, unsaved_files=None):
         self.clang.reparse(unsaved_files)
@@ -108,7 +112,9 @@ class Compiler:
             error_dict['string'] = error.spelling
             fixit = list()
             for fix in error.fixits:
-                fixit.append((fix.range, fix.value))
+                pos = ((fix.range.start.line, fix.range.start.column),
+                         (fix.range.end.line, fix.range.end.column))
+                fixit.append((pos, fix.value))
             error_dict['fixit'] = fixit
             error_list.append(error_dict)
         self.errors = error_list
@@ -124,6 +130,28 @@ class Compiler:
 
     def storeast(self, astpath):
         self.clang.save(astpath)
+
+    def loaderr(self, err):
+        self.errors = pickle.load(open(err, 'rb'))
+
+    def storeerr(self, err):
+        print(self.errors)
+        pickle.dump(self.errors, open(err, 'wb'))
+
+    def dump_to_file(self, file_prefix):
+        self.clang.save(file_prefix + '.clangdata')
+        pickle.dump(
+            (self.filename,
+                self.fileinfo,
+                self.errors), open(file_prefix + '.plugindata', 'wb'))
+        print('dump')
+
+    def load_from_file(self, file_prefix):
+        self.clang = self.clang_index.read(file_prefix + '.clangdata')
+        self.filename, self.fileinfo, self.errors = pickle.load(open(file_prefix + '.plugindata', 'rb'))
+        print(self.filename)
+        print(self.fileinfo)
+        print(self.errors)
 
 
 class Projector:
@@ -206,16 +234,15 @@ class Projector:
                     pass
                 astpath = os.path.join(astpath, relpath.replace('\\', '_'))
                 try:
-                    if os.stat(filename).st_mtime > os.stat(astpath + '.ast').st_mtime:
+                    if os.stat(filename).st_mtime > os.stat(astpath + '.clangdata').st_mtime:
                         raise Exception("whatever...")
-                    compiler.loadast(astpath + '.ast')
-                    compiler.fileinfo = pickle.load(open(astpath + '.info', 'rb'))
+                    compiler.load_from_file(astpath)
                     if self.need_parse(compiler.fileinfo):
                         raise Exception("whatever...")
                 except:
                     compiler.parse(args, unsaved_files)
-                    compiler.storeast(astpath + '.ast')
-                    pickle.dump(compiler.fileinfo, open(astpath + '.info', 'wb'))
+                    compiler.get_errors()
+                    compiler.dump_to_file(astpath)
                 i += 1
                 if progress_callback:
                     progress_callback('Parsing [%d/%d] %s' % (i, file_sum, filename))
