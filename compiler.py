@@ -31,6 +31,10 @@ EditingTranslationUnitOptions = (
         cindex.TranslationUnit.PARSE_INCLUDE_BRIEF_COMMENTS_IN_CODE_COMPLETION|
         0x200)
 
+def path_normalize(file_path):
+    file_path = os.path.normpath(file_path)
+    file_path = os.path.normcase(file_path)
+    return file_path
 
 class Compiler:
     def __init__(self, filename):
@@ -39,25 +43,22 @@ class Compiler:
             cindex.Config.set_library_path(local_config['lib_path'])
             cindex.Config.compatibility_check = False
         self.clang_index = cindex.Index.create()
-        self.tokens = dict()
-        self.symbol_table = dict()
-        self.symbol_def_table = dict()
         self.errors = None
-        self.database = sqlite3.connect(':memory:')
-        self.database_cur = self.database.cursor()
-        self.database_cur.execute("CREATE TABLE Symbol (usr varchar(128) primary key, defpos int)")
+        self.fileinfo = dict()
 
     def get_include_files(self):
         for file_inclusions in self.clang.get_includes():
-            # yield file_inclusions.include.name, (file_inclusions.location.file.name,
-            #                                      file_inclusions.location.line,
-            #                                      file_inclusions.location.column), file_inclusions.depth
-            yield (file_inclusions.include.name, (
+            yield (path_normalize(file_inclusions.include.name), (
                         file_inclusions.location.file.name,
                         file_inclusions.location.line))
 
     def parse(self, args, unsaved_files=None):
         self.clang = self.clang_index.parse(self.filename, args, unsaved_files, options=EditingTranslationUnitOptions)
+        self.fileinfo['ModifyTime'] = os.stat(self.filename).st_mtime
+        inc_list = list()
+        for f in self.get_include_files():
+            inc_list.append((f[0], os.stat(f[0]).st_mtime))
+        self.fileinfo['HeaderModifyTime'] = inc_list
 
     def reparse(self, unsaved_files=None):
         self.clang.reparse(unsaved_files)
@@ -69,33 +70,6 @@ class Compiler:
             if os.path.samefile(f, filename):
                 return True
         return False
-
-    def collect_symbols(self):
-        symbol_table = dict()
-        symbol_def_table = dict()
-        # for cursor in self.clang.cursor.get_children():
-        for cursor in self.clang.cursor.walk_preorder():
-            if cursor.spelling == '':
-                continue
-            if cursor.is_definition():
-                usr = cursor.get_usr()
-                symbol_def_table[usr] = cursor
-                self.database_cur.execute("INSERT OR IGNORE INTO Symbol values ('%s', %d)" % (usr, 1))
-            if (cursor.get_definition() is None) and (cursor.referenced is None):
-                continue
-            usr = (cursor.get_definition() or cursor.referenced).get_usr()
-            if usr not in symbol_table:
-                symbol_table[usr] = list()
-            symbol_table[usr].append(cursor)
-        self.symbol_def_table = symbol_def_table
-        self.symbol_table = symbol_table
-        self.database_cur.execute("SELECT * FROM Symbol")
-        pprint.pprint(self.database_cur.fetchall())
-
-    def find_symbols(self, usr):
-        if usr in self.symbol_table:
-            return self.symbol_table[usr]
-        return None
 
     def get_cursor_at(self, line, column, filename=None):
         if filename is None:
@@ -123,7 +97,10 @@ class Compiler:
         severity_list = ['Ignored', 'Note', 'Warning', 'Error', 'Fatal']
         error_list = []
         for error in self.clang.diagnostics:
+            if error.location.file is None:
+                continue
             error_dict = dict()
+            # print(error.spelling)
             error_dict['file'] = error.location.file.name
             error_dict['line'] = error.location.line
             error_dict['column'] = error.location.column
@@ -142,34 +119,11 @@ class Compiler:
             if os.path.samefile(filename, pos[0]) and line == pos[1]:
                 return f
 
-    # def loadast(self, astpath):
-    #     self.clang = self.clang_index.read(astpath)
+    def loadast(self, astpath):
+        self.clang = self.clang_index.read(astpath)
 
-    # def storeast(self, astpath):
-    #     self.clang.save(astpath)
-
-    # def store_symbol_table(self, stpath):
-    #     pickle.dump(self.symbol_table, open(stpath, 'w'), True)
-
-    # def store_symbol_def_table(self, sdtpath):
-    #     pickle.dump(self.symbol_def_table, open(sdtpath, 'w'), True)
-
-    # def store_errors(self, errpath):
-    #     pickle.dump(self.errors, open(errpath, 'w'), True)
-
-    # def load_symbol_table(self, stpath):
-    #     self.symbol_table = pickle.load(open(stpath))
-
-    # def load_symbol_def_table(self, sdtpath):
-    #     self.symbol_def_table = pickle.load(open(sdtpath))
-
-    # def load_errors(self, errpath):
-    #     self.errors = pickle.load(open(errpath))
-
-def path_normalize(file_path):
-    file_path = os.path.normpath(file_path)
-    file_path = os.path.normcase(file_path)
-    return file_path
+    def storeast(self, astpath):
+        self.clang.save(astpath)
 
 
 class Projector:
@@ -216,6 +170,13 @@ class Projector:
         filename = path_normalize(filename)
         self.files[filename] = Compiler(filename)
 
+    def need_parse(self, incs):
+        for (f, t) in incs['HeaderModifyTime']:
+            if t < os.stat(f).st_mtime:
+                print(f)
+                return True
+        return False
+
     def compile(self, unsaved_files=None, progress_callback=None):
         if self.background_worker and self.background_worker.isAlive():
             return None
@@ -237,23 +198,24 @@ class Projector:
                 nonlocal i
                 nonlocal self
                 filename, compiler = sub_args
-                # relpath = os.path.relpath(filename, self.work_path)
-                # astpath = os.path.join(self.work_path, '.clang_data')
-                # astpath = os.path.join(astpath, '%X' % relpath.__hash__())
-                # try:
-                #     compiler.loadast(astpath + '.ast')
-                #     compiler.load_symbol_table(astpath + '.symbol_table')
-                #     compiler.load_symbol_def_table(astpath + '.symbol_def_table')
-                #     compiler.load_errors(astpath + '.errors')
-                # except:
-                compiler.parse(args, unsaved_files)
-                # compiler.storeast(astpath + '.ast')
-                compiler.collect_symbols()
-                # compiler.get_errors()
-                # compiler.store_symbol_table(astpath + '.symbol_table')
-                # compiler.store_symbol_def_table(astpath + '.symbol_def_table')
-                # compiler.store_errors(astpath + '.errors')
-                
+                relpath = os.path.relpath(filename, self.work_path)
+                astpath = os.path.join(self.work_path, '.clang_data')
+                try:
+                    os.makedirs(astpath)
+                except:
+                    pass
+                astpath = os.path.join(astpath, relpath.replace('\\', '_'))
+                try:
+                    if os.stat(filename).st_mtime > os.stat(astpath + '.ast').st_mtime:
+                        raise Exception("whatever...")
+                    compiler.loadast(astpath + '.ast')
+                    compiler.fileinfo = pickle.load(open(astpath + '.info', 'rb'))
+                    if self.need_parse(compiler.fileinfo):
+                        raise Exception("whatever...")
+                except:
+                    compiler.parse(args, unsaved_files)
+                    compiler.storeast(astpath + '.ast')
+                    pickle.dump(compiler.fileinfo, open(astpath + '.info', 'wb'))
                 i += 1
                 if progress_callback:
                     progress_callback('Parsing [%d/%d] %s' % (i, file_sum, filename))
@@ -263,8 +225,6 @@ class Projector:
 
             if progress_callback:
                 progress_callback('All Done.')
-        # self.background_worker = threading.Thread(target=worker, args=(self, unsaved_files, progress_callback))
-        # self.background_worker.start()
         worker(self, unsaved_files, progress_callback)
 
     def re_compile(self, target_file, unsaved_files=None):
@@ -360,12 +320,14 @@ class Projector:
 
 
 if __name__ == '__main__':
+    
     proj = Projector()
     proj.set_work_path(r'D:\WorkSpace\Fujitsu_718')
     proj.add_usr_include_path(r'D:\WorkSpace\Fujitsu_718')
     proj.add_usr_include_path(r'D:\WorkSpace\Fujitsu_718\Fujitsu718')
-    proj.add_file(r'D:\WorkSpace\Fujitsu_718\main.c')
-    # proj.add_file(r'D:\workspace\Fujitsu_718\math.c')
+    proj.add_file('D:\WorkSpace\Fujitsu_718\main.c')
+    proj.add_file(r'D:\workspace\Fujitsu_718\math.c')
+    
     args = list()
     args.append( "-D__io=")
     args.append( "-D__direct=")
@@ -380,7 +342,11 @@ if __name__ == '__main__':
     args.append( "-D__interrupt=")
     args.append( "-std=c99")
     proj.set_arguments(args)
+    from time import clock, sleep
+    start=clock()
     proj.compile()
+    finish=clock()
+    print((finish-start))
     # proj.re_compile(r'D:\clang\Fujitsu_718\main.c')
 
 
