@@ -9,11 +9,6 @@ import pprint
 import platform
 
 
-def source_range_hash(self):
-    return self.__repr__().__hash__()
-
-SourceRange.__hash__ = source_range_hash
-
 local_config = {
 }
 
@@ -22,16 +17,23 @@ if platform.system() == 'Darwin':
 elif platform.system() == 'Windows':
     local_config['lib_path'] = 'D:\\'
 elif platform.system() == 'Linux':
-    local_config['lib_path'] = '/usr/bin/lib'
+    local_config['lib_path'] = '/usr/lib/x86_64-unknown-linux'
 
 
 EditingTranslationUnitOptions = (
         cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD |
         cindex.TranslationUnit.PARSE_PRECOMPILED_PREAMBLE |
         cindex.TranslationUnit.PARSE_CACHE_COMPLETION_RESULTS |
-        cindex.TranslationUnit.PARSE_INCLUDE_BRIEF_COMMENTS_IN_CODE_COMPLETION|
+        cindex.TranslationUnit.PARSE_INCLUDE_BRIEF_COMMENTS_IN_CODE_COMPLETION |
         0x200)
 
+MacroExpendQTUOptions = (
+    0x200
+    )
+
+def extend_normalize(sourceRange):
+    return ((sourceRange.start.line, sourceRange.start.column),
+            (sourceRange.end.line, sourceRange.end.column))
 
 def path_normalize(file_path):
     file_path = os.path.normpath(file_path)
@@ -48,6 +50,8 @@ class Compiler:
         self.clang_index = cindex.Index.create()
         self.errors = None
         self.fileinfo = dict()
+        self.args = None
+        self.unsaved_files = None
 
     def get_include_files(self):
         for file_inclusions in self.clang.get_includes():
@@ -56,6 +60,8 @@ class Compiler:
                         file_inclusions.location.line))
 
     def parse(self, args, unsaved_files=None):
+        self.args = args
+        self.unsaved_files = unsaved_files
         self.clang = self.clang_index.parse(self.filename, args, unsaved_files, options=EditingTranslationUnitOptions)
         self.fileinfo['ModifyTime'] = os.stat(self.filename).st_mtime
         inc_list = list()
@@ -75,13 +81,65 @@ class Compiler:
                 return True
         return False
 
-    def get_cursor_at(self, line, column, filename=None):
-        if filename is None:
-            filename = self.filename
-        file_obj = self.clang.get_file(filename)
-        location = cindex.SourceLocation.from_position(self.clang, file_obj, line, column)
-        return cindex.Cursor.from_location(self.clang, location)
+    def get_usr(self, filename, line, column):
+        try:
+            position = SourceLocation.from_position(
+                self.clang,
+                self.clang.get_file(filename),
+                line,
+                column)
+            cursor = self.clang.cursor.from_location(self.clang, position)
+            return cursor.get_usr()
+        except:
+            return None
 
+    def get_defination(self, filename, line, column):
+        try:
+            position = SourceLocation.from_position(
+                    self.clang,
+                    self.clang.get_file(filename),
+                    line,
+                    column)
+            cursor = self.clang.cursor.from_location(self.clang, position)
+            ref = cursor.referenced or cursor.get_defination()   # 两者有什么区别？
+            pos = ref.location
+            return (pos.file, pos.line, pos.column)
+        except:
+            return None
+
+    def get_macro_expend(self, filename, line, column):
+        position = SourceLocation.from_position(
+                    self.clang,
+                    self.clang.get_file(filename),
+                    line,
+                    column)
+        temp_cindex = cindex.Index.create()
+        temp_compiler = temp_cindex.parse(self.filename, self.args, self.unsaved_files, options=0)
+        # tokens = self.clang.get_tokens(position)
+        for cur in temp_compiler.cursor.walk_preorder():
+            print(cur.spelling)
+        # for cur in self.clang.cursor.walk_preorder():
+
+        #     if cur.kind == CursorKind.MACRO_INSTANTIATION:
+        #         if os.path.samefile(cur.location.file.name, self.filename):
+        #             ext = SourceRange.from_locations(
+        #                     SourceLocation.from_offset(temp_compiler,
+        #                                         File.from_name(temp_compiler, cur.location.file.name),
+        #                                         cur.extent.start.offset
+        #                         ),
+        #                     SourceLocation.from_offset(temp_compiler,
+        #                                         File.from_name(temp_compiler, cur.location.file.name),
+        #                                         cur.extent.end.offset
+        #                         )
+        #                 )
+        #             for c in temp_compiler.cursor.walk_preorder():
+        #                 if c.extent in ext:
+        #                     print(cur.spelling, '->', c.spelling)
+        return ' '
+        # cursor = self.clang.cursor.from_location(self.clang, position)
+        # print(''.join(map(lambda m:m.spelling, cursor.walk_preorder())))
+
+    # TODO: 修改返回结果类型，排除clang对象
     def code_complete(self, line, column, unsaved_content, filename=None):
         unsaved = [(self.filename, unsaved_content)]
         if filename is None:
@@ -125,33 +183,16 @@ class Compiler:
             if os.path.samefile(filename, pos[0]) and line == pos[1]:
                 return f
 
-    def loadast(self, astpath):
-        self.clang = self.clang_index.read(astpath)
-
-    def storeast(self, astpath):
-        self.clang.save(astpath)
-
-    def loaderr(self, err):
-        self.errors = pickle.load(open(err, 'rb'))
-
-    def storeerr(self, err):
-        print(self.errors)
-        pickle.dump(self.errors, open(err, 'wb'))
-
     def dump_to_file(self, file_prefix):
         self.clang.save(file_prefix + '.clangdata')
         pickle.dump(
             (self.filename,
                 self.fileinfo,
                 self.errors), open(file_prefix + '.plugindata', 'wb'))
-        print('dump')
 
     def load_from_file(self, file_prefix):
         self.clang = self.clang_index.read(file_prefix + '.clangdata')
         self.filename, self.fileinfo, self.errors = pickle.load(open(file_prefix + '.plugindata', 'rb'))
-        print(self.filename)
-        print(self.fileinfo)
-        print(self.errors)
 
 
 class Projector:
@@ -201,7 +242,6 @@ class Projector:
     def need_parse(self, incs):
         for (f, t) in incs['HeaderModifyTime']:
             if t < os.stat(f).st_mtime:
-                print(f)
                 return True
         return False
 
@@ -243,6 +283,9 @@ class Projector:
                     compiler.parse(args, unsaved_files)
                     compiler.get_errors()
                     compiler.dump_to_file(astpath)
+                print(compiler.get_usr('D:\WorkSpace\Fujitsu_718\config.h', 26, 13))
+                print(compiler.get_defination('D:\WorkSpace\Fujitsu_718\main.c', 688, 10))
+                print(compiler.get_macro_expend('D:\WorkSpace\Fujitsu_718\main.c', 18, 10))
                 i += 1
                 if progress_callback:
                     progress_callback('Parsing [%d/%d] %s' % (i, file_sum, filename))
@@ -374,6 +417,7 @@ if __name__ == '__main__':
     proj.compile()
     finish=clock()
     print((finish-start))
+
     # proj.re_compile(r'D:\clang\Fujitsu_718\main.c')
 
 
