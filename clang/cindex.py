@@ -1143,6 +1143,9 @@ TemplateArgumentKind.DECLARATION = TemplateArgumentKind(2)
 TemplateArgumentKind.NULLPTR = TemplateArgumentKind(3)
 TemplateArgumentKind.INTEGRAL = TemplateArgumentKind(4)
 
+class CursorAndRangeVisitor(Structure):
+    pass
+
 ### Cursors ###
 
 class Cursor(Structure):
@@ -1489,6 +1492,20 @@ class Cursor(Structure):
         conf.lib.clang_visitChildren(self, callbacks['cursor_visit'](visitor),
             children)
         return iter(children)
+
+    def get_references(self, file):
+        refs = []
+        def vistor(context, cursor, sourceRange):
+            refs.append(cursor)
+            return 1
+        CursorAndRangeVisitor._fields_ = [("context", c_object_p), ("vistor", callbacks['find_ref_visit'])]
+        c = CursorAndRangeVisitor()
+        c.context = None
+        c.vistor = callbacks['find_ref_visit'](vistor)
+        assert isinstance(file, File)
+        assert isinstance(self, Cursor)
+        conf.lib.clang_findReferencesInFile(self, file, c)
+        return refs
 
     def walk_preorder(self):
         """Depth-first preorder walk over the cursor and its descendants.
@@ -2920,6 +2937,7 @@ callbacks['translation_unit_includes'] = CFUNCTYPE(None, c_object_p,
         POINTER(SourceLocation), c_uint, py_object)
 callbacks['cursor_visit'] = CFUNCTYPE(c_int, Cursor, Cursor, py_object)
 callbacks['fields_visit'] = CFUNCTYPE(c_int, Cursor, py_object)
+callbacks['find_ref_visit'] = CFUNCTYPE(c_int, c_object_p, Cursor, SourceRange)
 
 # Functions strictly alphabetical order.
 functionList = [
@@ -3557,6 +3575,10 @@ functionList = [
   ("clang_Type_visitFields",
    [Type, callbacks['fields_visit'], py_object],
    c_uint),
+
+  ("clang_findReferencesInFile",
+    [Cursor, File, CursorAndRangeVisitor],
+    c_uint)
 ]
 
 class LibclangError(Exception):

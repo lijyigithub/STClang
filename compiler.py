@@ -27,18 +27,60 @@ EditingTranslationUnitOptions = (
         cindex.TranslationUnit.PARSE_INCLUDE_BRIEF_COMMENTS_IN_CODE_COMPLETION |
         0x200)
 
-MacroExpendQTUOptions = (
-    0x200
-    )
-
 def extend_normalize(sourceRange):
     return ((sourceRange.start.line, sourceRange.start.column),
             (sourceRange.end.line, sourceRange.end.column))
+
+def location_normalize(location):
+    return (location.file.name,
+            (location.line, location.column))
 
 def path_normalize(file_path):
     file_path = os.path.normpath(file_path)
     file_path = os.path.normcase(file_path)
     return file_path
+
+
+def GetAutoCompletion(results):
+    comp = list()
+    for item in results:
+        if True: #item.string.availability != 3:
+            place_holder_index = 1
+            display_string = []
+            insert_string = []
+            for field in item.string:
+                if field.isKindTypedText():
+                    typed = field.spelling
+                    # if typed.startswith(prefix):
+                    insert_string.append(field.spelling)
+                    # else:
+                        # break
+                elif field.isKindPlaceHolder():
+                    insert_string.append( "${%d:%s}" % (place_holder_index, field.spelling) )
+                    place_holder_index += 1
+                elif field.isKindResultType():
+                    pass
+                elif str(field.kind) == "LeftBrace":
+                    insert_string.append(field.spelling)
+                    insert_string.append("\n\t")
+                else:
+                    insert_string.append(field.spelling)
+                display_string.append(field.spelling)
+                if field.isKindResultType():
+                    display_string.append(" ")
+            if len(insert_string) == 0:
+                continue
+            if item.string.briefComment is not None:
+                display_string.append(str(item.string.briefComment))
+            disstr = "".join(display_string)
+            insstr = "".join(insert_string)
+            priority = item.string.priority
+            comp.append((priority, ("%s   \t%s" %
+                            (typed, disstr),
+                            insstr)))
+    comp.sort(key=lambda m:m[0])
+    comp = [m[1] for m in comp]
+    return comp
 
 
 class Compiler:
@@ -72,6 +114,12 @@ class Compiler:
 
     def reparse(self, unsaved_files=None):
         self.clang.reparse(unsaved_files)
+        self.fileinfo['ModifyTime'] = os.stat(self.filename).st_mtime
+        inc_list = list()
+        for f in self.get_include_files():
+            inc_list.append((f[0], os.stat(f[0]).st_mtime))
+        self.fileinfo['HeaderModifyTime'] = inc_list
+        self.get_errors()
 
     def has_file(self, filename):
         if os.path.samefile(filename, self.filename):
@@ -107,44 +155,50 @@ class Compiler:
         except:
             return None
 
-    def get_macro_expend(self, filename, line, column):
+    def get_def_content(self, filename, line, column):
+        try:
+            position = SourceLocation.from_position(
+                        self.clang,
+                        self.clang.get_file(filename),
+                        line,
+                        column)
+
+            cursor = self.clang.cursor.from_location(self.clang, position)
+            ref = cursor.referenced or cursor.get_defination()
+            f = open(ref.location.file.name, 'rb')
+            f.seek(ref.extent.start.offset)
+            buf = f.read(ref.extent.end.offset - ref.extent.start.offset)
+            f.close()
+            return buf.decode('utf-8', errors="ignore")
+        except:
+            return None
+
+    def get_ref(self, filename, line, column):
         position = SourceLocation.from_position(
-                    self.clang,
-                    self.clang.get_file(filename),
-                    line,
-                    column)
-        temp_cindex = cindex.Index.create()
-        temp_compiler = temp_cindex.parse(self.filename, self.args, self.unsaved_files, options=0)
-        # tokens = self.clang.get_tokens(position)
-        for cur in temp_compiler.cursor.walk_preorder():
-            print(cur.spelling)
-        # for cur in self.clang.cursor.walk_preorder():
+                        self.clang,
+                        self.clang.get_file(filename),
+                        line,
+                        column)
 
-        #     if cur.kind == CursorKind.MACRO_INSTANTIATION:
-        #         if os.path.samefile(cur.location.file.name, self.filename):
-        #             ext = SourceRange.from_locations(
-        #                     SourceLocation.from_offset(temp_compiler,
-        #                                         File.from_name(temp_compiler, cur.location.file.name),
-        #                                         cur.extent.start.offset
-        #                         ),
-        #                     SourceLocation.from_offset(temp_compiler,
-        #                                         File.from_name(temp_compiler, cur.location.file.name),
-        #                                         cur.extent.end.offset
-        #                         )
-        #                 )
-        #             for c in temp_compiler.cursor.walk_preorder():
-        #                 if c.extent in ext:
-        #                     print(cur.spelling, '->', c.spelling)
-        return ' '
-        # cursor = self.clang.cursor.from_location(self.clang, position)
-        # print(''.join(map(lambda m:m.spelling, cursor.walk_preorder())))
+        cursor = self.clang.cursor.from_location(self.clang, position)
+        return [location_normalize(x.location) for x in cursor.get_references(cursor.location.file)]
 
-    # TODO: 修改返回结果类型，排除clang对象
+    def findall_def(self):
+        symbol_table = dict()
+        for cur in self.clang.cursor.get_children():
+            if cur.is_definition():
+                if os.path.samefile(cur.location.file.name, self.filename):
+                    symbol_table[cur.get_usr()] = location_normalize(cur.location)
+        pprint.pprint(symbol_table)
+
+    # TODO: 拆分函数内容
     def code_complete(self, line, column, unsaved_content, filename=None):
         unsaved = [(self.filename, unsaved_content)]
         if filename is None:
             filename = self.filename
-        return self.clang.codeComplete(
+        result = []
+
+        res = self.clang.codeComplete(
                                     filename,
                                     line=line, column=column,
                                     unsaved_files=unsaved,
@@ -152,6 +206,62 @@ class Compiler:
                                     include_code_patterns=True,
                                     include_brief_comments=True
                                     )
+        for item in res.results:
+            if item.string.availability == 3:
+                continue
+            place_holder_index = 1
+            display_string = []
+            insert_string = []
+            for field in item.string:
+                if field.isKindTypedText():
+                    typed = field.spelling
+                    insert_string.append(field.spelling)
+                elif field.isKindPlaceHolder():
+                    insert_string.append( "${%d:%s}" % (place_holder_index, field.spelling) )
+                    place_holder_index += 1
+                elif field.isKindResultType():
+                    pass
+                elif str(field.kind) == "LeftBrace":
+                    insert_string.append(field.spelling)
+                    insert_string.append("\n\t")
+                else:
+                    insert_string.append(field.spelling)
+                display_string.append(field.spelling)
+                if field.isKindResultType():
+                    display_string.append(" ")
+            if len(insert_string) == 0:
+                continue
+            if item.string.briefComment is not None:
+                display_string.append(str(item.string.briefComment))
+            disstr = "".join(display_string)
+            insstr = "".join(insert_string)
+            priority = item.string.priority
+            result.append((priority, ("%s   \t%s" % (typed, disstr), insstr)))
+        result.sort(key=lambda m:m[0])
+        result = [m[1] for m in result]
+
+        severity_list = ['Ignored', 'Note', 'Warning', 'Error', 'Fatal']
+        error_list = []
+        for i in range(0, len(res.diagnostics)):
+            error = res.diagnostics[i]
+            if error.location.file is None:
+                continue
+            error_dict = dict()
+            # print(error.spelling)
+            error_dict['file'] = error.location.file.name
+            error_dict['line'] = error.location.line
+            error_dict['column'] = error.location.column
+            error_dict['severity'] = severity_list[error.severity]
+            error_dict['string'] = error.spelling
+            fixit = list()
+            for fix in error.fixits:
+                pos = ((fix.range.start.line, fix.range.start.column),
+                         (fix.range.end.line, fix.range.end.column))
+                fixit.append((pos, fix.value))
+            error_dict['fixit'] = fixit
+            error_list.append(error_dict)
+        self.errors = error_list
+        return result
 
     def get_errors(self):
         if self.errors is not None:
@@ -274,6 +384,7 @@ class Projector:
                     pass
                 astpath = os.path.join(astpath, relpath.replace('\\', '_'))
                 try:
+                    raise Exception('waht????')
                     if os.stat(filename).st_mtime > os.stat(astpath + '.clangdata').st_mtime:
                         raise Exception("whatever...")
                     compiler.load_from_file(astpath)
@@ -283,9 +394,7 @@ class Projector:
                     compiler.parse(args, unsaved_files)
                     compiler.get_errors()
                     compiler.dump_to_file(astpath)
-                print(compiler.get_usr('D:\WorkSpace\Fujitsu_718\config.h', 26, 13))
-                print(compiler.get_defination('D:\WorkSpace\Fujitsu_718\main.c', 688, 10))
-                print(compiler.get_macro_expend('D:\WorkSpace\Fujitsu_718\main.c', 18, 10))
+
                 i += 1
                 if progress_callback:
                     progress_callback('Parsing [%d/%d] %s' % (i, file_sum, filename))
@@ -304,59 +413,29 @@ class Projector:
             for (filename, compiler) in self.files.items():
                 if compiler.has_file(target_file):
                     compiler.reparse(unsaved_files)
-                    compiler.collect_symbols()
         self.background_worker = threading.Thread(target=worker, args=(self, target_file, unsaved_files))
         self.background_worker.start()
-
-    def get_cursor_at(self, filename, line, column):
-        if self.background_worker and self.background_worker.isAlive():
-            return None
-        f_compiler = self.get_compiler(filename)
-        return f_compiler.get_cursor_at(line, column, filename) if f_compiler else None
 
     def get_def_of(self, filename, line, column):
         if self.background_worker and self.background_worker.isAlive():
             return None
-        cur = self.get_cursor_at(filename, line, column)
-        if cur is None:
-            return None
-        if cur.get_definition():
-            return cur.get_definition()
-        if cur.referenced is None:
-            return None
-        usr = cur.referenced.get_usr()
-        for (f, compiler) in self.files.items():
-            if usr in compiler.symbol_def_table:
-                return compiler.symbol_def_table[usr]
+        for(filename, compiler) in self.files.items():
+            if compiler.has_file(filename):
+                return compiler.get_defination(filename, line, column)
         return None
 
     def get_def_body_of(self, filename, line, column):
         if self.background_worker and self.background_worker.isAlive():
             return None
-        f_compiler = self.get_compiler(filename)
-        cur = self.get_cursor_at(filename, line, column)
-        if cur is None:
-            return None
-        if cur.get_definition():
-            cur = cur.get_definition()
-        elif cur.referenced is None:
-            cur = cur.referenced
-        return f_compiler.clang.get_extent(filename, [cur.extent.start, cur.extent.end])
+        for(filename, compiler) in self.files.items():
+            if compiler.has_file(filename):
+                return compiler.get_def_content(filename, line, column)
+        return None
 
     def find_cursor(self, filename, line, column):
         if self.background_worker and self.background_worker.isAlive():
             return None
-        cursor = self.get_cursor_at(filename, line, column)
-        def_cur = cursor.get_definition() or cursor.referenced
-        if def_cur is None:
-            return None
-        usr = def_cur.get_usr()
-        all_referenced = list()
-        for (f, compiler) in self.files.items():
-            cur_lst = compiler.find_symbols(usr)
-            if cur_lst:
-                all_referenced.extend(cur_lst)
-        return all_referenced
+        return None # 怎样实现？
 
     def get_errors(self, filename):
         if self.background_worker and self.background_worker.isAlive():
@@ -396,7 +475,7 @@ if __name__ == '__main__':
     proj.add_usr_include_path(r'D:\WorkSpace\Fujitsu_718')
     proj.add_usr_include_path(r'D:\WorkSpace\Fujitsu_718\Fujitsu718')
     proj.add_file('D:\WorkSpace\Fujitsu_718\main.c')
-    proj.add_file(r'D:\workspace\Fujitsu_718\math.c')
+    # proj.add_file(r'D:\workspace\Fujitsu_718\math.c')
     
     args = list()
     args.append( "-D__io=")
@@ -417,7 +496,5 @@ if __name__ == '__main__':
     proj.compile()
     finish=clock()
     print((finish-start))
-
-    # proj.re_compile(r'D:\clang\Fujitsu_718\main.c')
-
-
+    print(proj.code_complete('D:\WorkSpace\Fujitsu_718\main.c', 638, 17,
+         open('D:\WorkSpace\Fujitsu_718\main1.c', 'rb').read().replace(b'\r', b'').decode('utf-8', errors='ignore')))
