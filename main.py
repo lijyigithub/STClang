@@ -5,6 +5,7 @@ from .opener import *
 from .clang.cindex import *
 import os
 import re
+import html
 
 
 proj = None
@@ -138,14 +139,7 @@ class SclangFellowdef(sublime_plugin.TextCommand):
             on_selection_view_in_right = None
 
     def is_enabled(self):
-        view = sublime.active_window().active_view()
-        cur_file = get_view_file(view)
-        line, column = get_view_cur(view)
-        if not isinstance(proj, Projector):
-            return False
-        if len(view.window().views_in_group(1)) > 0:
-            return False
-        return True
+        return False
 
     def is_checked(self):
         return self.cked
@@ -176,71 +170,19 @@ class SclangOpen(sublime_plugin.TextCommand):
 
 class SclangGoto(sublime_plugin.TextCommand):
     def run(self, edit):
-        cur_file = get_view_file(self.view)
-        line, column = get_view_cur(self.view)
-        if not isinstance(proj, Projector):
-            return
-        cur = proj.get_def_of(cur_file, line, column)
-        if cur is None:
-            return
-        if cur is not None:
-            self.view.run_command('push_selection')
-            def_file = cur.location.file.name
-            l, c = location_to_pos(cur.location)
-            self.view.window().open_file('%s:%d:%d' % (def_file, l, c), sublime.ENCODED_POSITION)
+        pass
 
 
     def is_enabled(self):
-        view = sublime.active_window().active_view()
-        cur_file = get_view_file(view)
-        line, column = get_view_cur(view)
-        if not isinstance(proj, Projector):
-            return False
-        cur = proj.get_def_of(cur_file, line, column)
-        if cur:
-            return True
-        else:
-            return False
+        pass
 
 
 class SclangView(sublime_plugin.TextCommand):
     def run(self, edit):
-        global outer
-        cur_file = get_view_file(self.view)
-        line, column = get_view_cur(self.view)
-        if not isinstance(proj, Projector):
-            return
-        curs = proj.find_cursor(cur_file, line, column)
-        cur_dict = dict()
-        for cur in curs:
-            # print(cur.referenced, cur.location.file.name, cur.location.line)
-            if cur.location.file.name not in cur_dict:
-                cur_dict[cur.location.file.name] = dict()
-            cur_dict[cur.location.file.name][cur.location.line] = (
-                        proj.get_line(cur.location.file.name, cur.location.line))
-        outer = find_sym_panel(self.view.window())
-        for (f, cs) in cur_dict.items():
-            # outer.add_file(f)
-            new_list = [c for c in cs.items()]
-            # print(new_list)
-            new_list.sort(key=lambda m:m[0])
-            for c in new_list: #cs.items():
-                outer.add_line('%s:%d' % (os.path.normpath(f), c[0]), c[1])
+        pass
 
     def is_enabled(self):
-        view = sublime.active_window().active_view()
-        cur_file = get_view_file(view)
-        line, column = get_view_cur(view)
-        if not isinstance(proj, Projector):
-            return False
-        cur = proj.get_cursor_at(cur_file, line, column);
-        if cur is None:
-            return False
-        cur = cur.get_definition() or cur.referenced
-        if cur:
-            return True
-        else:
-            return False
+        pass
 
 
 class SclangSwitchfile(sublime_plugin.TextCommand):
@@ -262,46 +204,6 @@ class SclangSwitchfile(sublime_plugin.TextCommand):
         else:
             return False
 
-def GetAutoCompletion(prefix, results):
-    comp = list()
-    for item in results:
-        if True: #item.string.availability != 3:
-            place_holder_index = 1
-            display_string = []
-            insert_string = []
-            for field in item.string:
-                if field.isKindTypedText():
-                    typed = field.spelling
-                    # if typed.startswith(prefix):
-                    insert_string.append(field.spelling)
-                    # else:
-                        # break
-                elif field.isKindPlaceHolder():
-                    insert_string.append( "${%d:%s}" % (place_holder_index, field.spelling) )
-                    place_holder_index += 1
-                elif field.isKindResultType():
-                    pass
-                elif str(field.kind) == "LeftBrace":
-                    insert_string.append(field.spelling)
-                    insert_string.append("\n\t")
-                else:
-                    insert_string.append(field.spelling)
-                display_string.append(field.spelling)
-                if field.isKindResultType():
-                    display_string.append(" ")
-            if len(insert_string) == 0:
-                continue
-            if item.string.briefComment is not None:
-                display_string.append(str(item.string.briefComment))
-            disstr = "".join(display_string)
-            insstr = "".join(insert_string)
-            priority = item.string.priority
-            comp.append((priority, ("%s   \t%s" %
-                            (typed, disstr),
-                            insstr)))
-    comp.sort(key=lambda m:m[0])
-    comp = [m[1] for m in comp]
-    return comp
 
 class ClangComplete(sublime_plugin.TextCommand):
     def run(self, edit, characters):
@@ -312,9 +214,11 @@ class ClangComplete(sublime_plugin.TextCommand):
         start = self.view.line(self.view.sel()[0]).begin()
         preline = self.view.substr(sublime.Region(start, end))
         if re.match('\s*#include\s*[\"\<]{1}.*', preline) is not None:
+            print('auto complete include')
             self.view.run_command("hide_auto_complete")
             sublime.set_timeout(self.delayed_complete, 1)
-        if  re.match(".*[a-z]{1}[a-z0-9]*(\.|-\>)$", preline) is not None:
+        if  re.match(".*[a-zA-Z]{1}[a-zA-Z0-9]*(\.|-\>)$", preline) is not None:
+            print('auto ./->')
             self.view.run_command("hide_auto_complete")
             sublime.set_timeout(self.delayed_complete, 1)
 
@@ -322,12 +226,64 @@ class ClangComplete(sublime_plugin.TextCommand):
         self.view.run_command("auto_complete")
 
 class STClangListener(sublime_plugin.EventListener):
-    def on_load(self, view):
+    def on_load_async(self, view):
         global func_on_load
         if func_on_load:
             print(func_on_load)
             func_on_load(self, view)
         func_on_load = None
+        cur_file = get_view_file(view)
+        if not isinstance(proj, Projector):
+            return
+        errors = proj.get_errors(cur_file)
+        self.errlist = sublime.PhantomSet(view, "errorlist")
+        ephlist = list()
+        # sublime.set_timeout(lambda :errlist.update([]), 1)
+        # sublime.Phantom.__hash__ = lambda self: (str(self.region) + str(self.content) + str(self.layout)).__hash__()
+        stylesheet = '''
+            <style>
+                div.error {
+                    padding: 0.4rem 0 0.4rem 0.7rem;
+                    margin: 0.2rem 0;
+                    border-radius: 2px;
+                }
+
+                div.error span.message {
+                    padding-right: 0.7rem;
+                }
+
+                div.error a {
+                    text-decoration: inherit;
+                    padding: 0.35rem 0.7rem 0.45rem 0.8rem;
+                    position: relative;
+                    bottom: 0.05rem;
+                    border-radius: 0 2px 2px 0;
+                    font-weight: bold;
+                }
+                html.dark div.error a {
+                    background-color: #00000018;
+                }
+                html.light div.error a {
+                    background-color: #ffffff18;
+                }
+            </style>
+        '''
+        if errors and len(errors)>0:
+            for e in errors:
+                if not os.path.samefile(cur_file, e['file']):
+                    continue
+                r = view.text_point(e['line']-1, e['column']-1)
+                if r == 0:
+                    continue
+                temp = sublime.Phantom(sublime.Region(r, view.line(r).b),
+                '<body id=inline-error>' + stylesheet + '^  ' +
+                            '<div class="error">' +
+                            '<span class="message">' + html.escape(e['string'], quote=False) + '</span>' +
+                            '</body>',
+                sublime.LAYOUT_BELOW)
+                ephlist.append(temp)
+        sublime.set_timeout(lambda :self.errlist.update(list(ephlist)), 100)
+
 
     def on_post_save(self, view):
         import time
@@ -380,29 +336,81 @@ class STClangListener(sublime_plugin.EventListener):
         fileCont = view.substr(sublime.Region(0, view.size()))
         if not isinstance(proj, Projector):
             return []
-        ret = proj.code_complete(cur_file, line, column, fileCont)
+        ret = proj.code_complete(cur_file, line+1, column+1, fileCont)
         if ret is None:
             return []
-        comp = GetAutoCompletion(prefix, ret.results)
-        return (comp, sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS)
+        errors = proj.get_errors(cur_file)
+        if self.errlist.view != view:
+            self.errlist = sublime.PhantomSet(view, 'errlist')
+        ephlist = list()
+        # sublime.set_timeout(lambda :errlist.update([]), 1)
+        # sublime.Phantom.__hash__ = lambda self: (str(self.region) + str(self.content) + str(self.layout)).__hash__()
+        stylesheet = '''
+            <style>
+                div.error {
+                    padding: 0.4rem 0 0.4rem 0.7rem;
+                    margin: 0.2rem 0;
+                    border-radius: 2px;
+                }
+        
+                div.error span.message {
+                    padding-right: 0.7rem;
+                }
+        
+                div.error a {
+                    text-decoration: inherit;
+                    padding: 0.35rem 0.7rem 0.45rem 0.8rem;
+                    position: relative;
+                    bottom: 0.05rem;
+                    border-radius: 0 2px 2px 0;
+                    font-weight: bold;
+                }
+                html.dark div.error a {
+                    background-color: #00000018;
+                }
+                html.light div.error a {
+                    background-color: #ffffff18;
+                }
+            </style>
+        '''
+        if errors and len(errors)>0:
+            for e in errors:
+                if not os.path.samefile(cur_file, e['file']):
+                    continue
+                r = view.text_point(e['line']-1, e['column']-1)
+                if r == 0:
+                    continue
+                temp = sublime.Phantom(sublime.Region(r, view.line(r).b),
+                '<body id=inline-error>' + stylesheet + '^  ' +
+                            '<div class="error">' +
+                            '<span class="message">' + html.escape(e['string'], quote=False) + '</span>' +
+                            '</body>',
+                sublime.LAYOUT_BELOW)
+                ephlist.append(temp)
+        sublime.set_timeout(lambda :self.errlist.update(list(ephlist)), 100)
+        return (ret, sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS)
 
     def on_activated(self, view):
+        pass
+
+    def on_hover(self, view, point, hover_zone):
+        if hover_zone != sublime.HOVER_TEXT:
+            return
+        (line, column) = view.rowcol(point)
+        line += 1
+        column += 1
+        view = sublime.active_window().active_view()
         cur_file = get_view_file(view)
         if not isinstance(proj, Projector):
-            return
-        errors = proj.get_errors(cur_file)
-        if errors and len(errors)>0:
-            ep = error_panel(view.window())
-            ep.add_line(errors[0]['file'])
-            for e in errors:
-                if e['line'] > 99999:
-                    sublime.message_dialog('file toooooo long')
-                    return
-                ep.add_line('line: %5d [%s] %s' % (e['line'], e['severity'], e['string']))
-            ep.show()
-        # else:
-        #     ep = error_panel(view.window())
-        #     ep.hide()
+            return False
+        pos = proj.get_def_of(cur_file, line, column)
+        sdef = proj.get_def_body_of(cur_file, line, column)
+        if pos and sdef:
+            view.show_popup(html.escape(pos[0] + ' ' + str(pos[1])) + '<br>' + html.escape(sdef), sublime.HIDE_ON_MOUSE_MOVE_AWAY, point, 600, 600)
+    
+    def on_modified(self, view):
+        pass
+        
     def on_clone(self, view):
         global on_clone_callback
         if on_clone_callback is not None:

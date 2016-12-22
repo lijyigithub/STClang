@@ -1,7 +1,7 @@
 # -*- coding:utf-8 -*-
 import os
-from clang import *
-from clang.cindex import *
+from .clang import *
+from .clang.cindex import *
 import threading
 import pickle
 import sqlite3
@@ -39,48 +39,6 @@ def path_normalize(file_path):
     file_path = os.path.normpath(file_path)
     file_path = os.path.normcase(file_path)
     return file_path
-
-
-def GetAutoCompletion(results):
-    comp = list()
-    for item in results:
-        if True: #item.string.availability != 3:
-            place_holder_index = 1
-            display_string = []
-            insert_string = []
-            for field in item.string:
-                if field.isKindTypedText():
-                    typed = field.spelling
-                    # if typed.startswith(prefix):
-                    insert_string.append(field.spelling)
-                    # else:
-                        # break
-                elif field.isKindPlaceHolder():
-                    insert_string.append( "${%d:%s}" % (place_holder_index, field.spelling) )
-                    place_holder_index += 1
-                elif field.isKindResultType():
-                    pass
-                elif str(field.kind) == "LeftBrace":
-                    insert_string.append(field.spelling)
-                    insert_string.append("\n\t")
-                else:
-                    insert_string.append(field.spelling)
-                display_string.append(field.spelling)
-                if field.isKindResultType():
-                    display_string.append(" ")
-            if len(insert_string) == 0:
-                continue
-            if item.string.briefComment is not None:
-                display_string.append(str(item.string.briefComment))
-            disstr = "".join(display_string)
-            insstr = "".join(insert_string)
-            priority = item.string.priority
-            comp.append((priority, ("%s   \t%s" %
-                            (typed, disstr),
-                            insstr)))
-    comp.sort(key=lambda m:m[0])
-    comp = [m[1] for m in comp]
-    return comp
 
 
 class Compiler:
@@ -151,7 +109,7 @@ class Compiler:
             cursor = self.clang.cursor.from_location(self.clang, position)
             ref = cursor.referenced or cursor.get_defination()   # 两者有什么区别？
             pos = ref.location
-            return (pos.file, pos.line, pos.column)
+            return (path_normalize(pos.file.name), pos.line, pos.column)
         except:
             return None
 
@@ -416,20 +374,20 @@ class Projector:
         self.background_worker = threading.Thread(target=worker, args=(self, target_file, unsaved_files))
         self.background_worker.start()
 
-    def get_def_of(self, filename, line, column):
+    def get_def_of(self, f, line, column):
         if self.background_worker and self.background_worker.isAlive():
             return None
         for(filename, compiler) in self.files.items():
-            if compiler.has_file(filename):
-                return compiler.get_defination(filename, line, column)
+            if compiler.has_file(f):
+                return compiler.get_defination(f, line, column)
         return None
 
-    def get_def_body_of(self, filename, line, column):
+    def get_def_body_of(self, f, line, column):
         if self.background_worker and self.background_worker.isAlive():
             return None
         for(filename, compiler) in self.files.items():
-            if compiler.has_file(filename):
-                return compiler.get_def_content(filename, line, column)
+            if compiler.has_file(f):
+                return compiler.get_def_content(f, line, column)
         return None
 
     def find_cursor(self, filename, line, column):
