@@ -229,7 +229,6 @@ class STClangListener(sublime_plugin.EventListener):
     def on_load_async(self, view):
         global func_on_load
         if func_on_load:
-            print(func_on_load)
             func_on_load(self, view)
         func_on_load = None
         cur_file = get_view_file(view)
@@ -286,11 +285,8 @@ class STClangListener(sublime_plugin.EventListener):
 
 
     def on_post_save(self, view):
-        import time
-        t = time.time()
         cur_file = get_view_file(view)
         proj.re_compile(cur_file)
-        print(time.time()-t)
 
     def on_selection_modified_async(self, view):
         import re
@@ -391,7 +387,56 @@ class STClangListener(sublime_plugin.EventListener):
         return (ret, sublime.INHIBIT_WORD_COMPLETIONS | sublime.INHIBIT_EXPLICIT_COMPLETIONS)
 
     def on_activated(self, view):
-        pass
+        cur_file = get_view_file(view)
+        errors = proj.get_errors(cur_file)
+        if self.errlist.view != view:
+            self.errlist = sublime.PhantomSet(view, 'errlist')
+        ephlist = list()
+        # sublime.set_timeout(lambda :errlist.update([]), 1)
+        # sublime.Phantom.__hash__ = lambda self: (str(self.region) + str(self.content) + str(self.layout)).__hash__()
+        stylesheet = '''
+            <style>
+                div.error {
+                    padding: 0.4rem 0 0.4rem 0.7rem;
+                    margin: 0.2rem 0;
+                    border-radius: 2px;
+                }
+
+                div.error span.message {
+                    padding-right: 0.7rem;
+                }
+
+                div.error a {
+                    text-decoration: inherit;
+                    padding: 0.35rem 0.7rem 0.45rem 0.8rem;
+                    position: relative;
+                    bottom: 0.05rem;
+                    border-radius: 0 2px 2px 0;
+                    font-weight: bold;
+                }
+                html.dark div.error a {
+                    background-color: #00000018;
+                }
+                html.light div.error a {
+                    background-color: #ffffff18;
+                }
+            </style>
+        '''
+        if errors and len(errors)>0:
+            for e in errors:
+                if not os.path.samefile(cur_file, e['file']):
+                    continue
+                r = view.text_point(e['line']-1, e['column']-1)
+                if r == 0:
+                    continue
+                temp = sublime.Phantom(sublime.Region(r, view.line(r).b),
+                '<body id=inline-error>' + stylesheet + '^  ' +
+                            '<div class="error">' +
+                            '<span class="message">' + html.escape(e['string'], quote=False) + '</span>' +
+                            '</body>',
+                sublime.LAYOUT_BELOW)
+                ephlist.append(temp)
+        sublime.set_timeout(lambda :self.errlist.update(list(ephlist)), 100)
 
     def on_hover(self, view, point, hover_zone):
         if hover_zone != sublime.HOVER_TEXT:

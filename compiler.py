@@ -107,10 +107,11 @@ class Compiler:
                     line,
                     column)
             cursor = self.clang.cursor.from_location(self.clang, position)
-            ref = cursor.referenced or cursor.get_defination()   # 两者有什么区别？
+            ref = cursor.get_definition() or cursor.referenced   # 两者有什么区别？
             pos = ref.location
             return (path_normalize(pos.file.name), pos.line, pos.column)
         except:
+            print('Cannot get it')
             return None
 
     def get_def_content(self, filename, line, column):
@@ -122,13 +123,14 @@ class Compiler:
                         column)
 
             cursor = self.clang.cursor.from_location(self.clang, position)
-            ref = cursor.referenced or cursor.get_defination()
+            ref = cursor.get_definition() or cursor.referenced   # 两者有什么区别？
             f = open(ref.location.file.name, 'rb')
             f.seek(ref.extent.start.offset)
             buf = f.read(ref.extent.end.offset - ref.extent.start.offset)
             f.close()
             return buf.decode('utf-8', errors="ignore")
         except:
+            print('Cannot get it')
             return None
 
     def get_ref(self, filename, line, column):
